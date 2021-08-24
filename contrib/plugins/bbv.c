@@ -29,7 +29,10 @@ FILE *pc_out = NULL;
 
 /* We measure the  */
 static uint64_t  insns_executed = 0;
-static uint64_t next_tbid = 0;
+/*
+ * The SimPoint utility requires numbering to start at 1.
+ */
+static uint64_t  next_tbid = 1;
 struct BBExecutionFrequency {
     uint64_t    tbid;
     uint64_t    tb_pc;
