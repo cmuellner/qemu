@@ -22,6 +22,7 @@ NAMES += hwprofile
 NAMES += cache
 NAMES += drcov
 NAMES += bbv
+NAMES += collect
 
 SONAMES := $(addsuffix .so,$(addprefix lib,$(NAMES)))
 
