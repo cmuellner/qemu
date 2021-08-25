@@ -33,6 +33,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 static GMutex lock;
 static GHashTable *blocks;
 
+FILE *outfile = NULL;
+
 /*
  * Counting Structure
  *
@@ -134,16 +136,15 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
      *   50 hottest blocks by number of instructions executed
      *   statistics on the plugin
      */
-    g_autoptr(GString) report = g_string_new("collected ");
     GList *counts, *it;
     int i;
 
     g_mutex_lock(&lock);
-    g_string_append_printf(report, "%d translation blocks\n",
-                           g_hash_table_size(blocks));
+    fprintf(outfile, "collected %d translation blocks\n",
+            g_hash_table_size(blocks));
     counts = g_hash_table_get_values(blocks);
 
-    g_string_append_printf(report, "## Blocks (by dynamic instructions)\n\n");
+    fprintf(outfile, "## Blocks (by dynamic instructions)\n\n");
     /* Hot-blocks, by executed instructions */
     it = g_list_sort(counts, cmp_dynamic_insncount);
 
@@ -158,15 +159,15 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
         for (GList *e = it; e->next; e = e->next) {
             TBExecCount *rec = (TBExecCount *) e->data;
             uint64_t n_insn_executed = rec->n_insns * rec->exec_count;
-            g_string_append_printf(report, "  0x%016"PRIx64" %"PRId64" %.4lf%% %s\n",
-                                   rec->start_addr,
-                                   n_insn_executed,
-                                   ((double)n_insn_executed * 100)/total_insn_executed,
-                                   rec->symbol ? rec->symbol : "");
+            fprintf(outfile,
+                    "  0x%016"PRIx64" %"PRId64" %.4lf%% %s\n",
+                    rec->start_addr,
+                    n_insn_executed,
+                    ((double)n_insn_executed * 100)/total_insn_executed,
+                    rec->symbol ? rec->symbol : "");
 
             for (i = 0; i < rec->n_insns; ++i) {
-                g_string_append_printf(report, "      %s\n",
-                                       rec->insns[i].disasm);
+                fprintf(outfile, "      %s\n", rec->insns[i].disasm);
 
             }
         }
@@ -174,7 +175,7 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
         g_list_free(it);
     }
 
-    g_string_append_printf(report, "\n## Blocks (by dynamic invocations)\n\n");
+    fprintf(outfile, "\n## Blocks (by dynamic invocations)\n\n");
 
     /* Hot-blocks, by block executions */
     counts = g_hash_table_get_values(blocks);
@@ -183,7 +184,7 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
         for (GList *e = it; e->next; e = e->next) {
             TBExecCount *rec = (TBExecCount *) e->data;
             uint64_t n_insn_executed = rec->exec_count;
-            g_string_append_printf(report, "  0x%016"PRIx64" %"PRId64" %.4lf%% %s\n",
+            fprintf(outfile, "  0x%016"PRIx64" %"PRId64" %.4lf%% %s\n",
                                    rec->start_addr,
                                    rec->exec_count,
                                    ((double)n_insn_executed * 100)/total_insn_executed,
@@ -193,14 +194,15 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
         g_list_free(it);
     }
 
-    g_string_append_printf(report, "\n## Summary\n\n");
-    g_string_append_printf(report, "  Dynamic instruction count:   %"PRId64"\n",
+    fprintf(outfile, "\n## Summary\n\n");
+    fprintf(outfile, "  Dynamic instruction count:   %"PRId64"\n",
                            total_insn_executed);
-    g_string_append_printf(report, "  Translation blocks executed: %d\n",
+    fprintf(outfile, "  Translation blocks executed: %d\n",
                            g_hash_table_size(blocks));
     
     g_mutex_unlock(&lock);
-    qemu_plugin_outs(report->str);
+    fflush(outfile);
+//    qemu_plugin_outs(report->str);
 }
 
 static void plugin_init(void)
@@ -212,6 +214,29 @@ QEMU_PLUGIN_EXPORT
 int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                         int argc, char **argv)
 {
+    char* out_file_name = NULL;
+    char  current_dir[PATH_MAX];
+    char  bla[PATH_MAX + 256];
+
+    getcwd(current_dir, PATH_MAX);
+//    fprintf(stderr, "CWD %s\n", current_dir);
+    sprintf(bla, "%s/%d.collect", current_dir, getpid());
+//    fprintf(stderr, "OUT %s\n", bla);
+        
+    for (int i = 0; i < argc; i++) {
+        char *opt = argv[i];
+
+        if (g_str_has_prefix(opt, "collect-out="))
+            out_file_name = opt + 12;
+        else {
+            fprintf(stderr, "option parsing failed: %s\n", opt);
+            return -1;
+        }
+    }
+
+//    if (out_file_name)
+        outfile = fopen(bla, "w");
+
     /*
       - output file
       - ???
