@@ -38,6 +38,7 @@ struct BBExecutionFrequency {
     uint64_t    tb_pc;
     uint64_t    n_insns;
     uint64_t    tb_dynamic_count;
+    uint64_t    tb_invocation_count;
     const char *symbol;
     uint64_t    offset_from_symbol;
 };
@@ -66,10 +67,21 @@ static void print_bb_freq (gpointer key, gpointer data, gpointer user_data)
     }
 }
 
+static void print_bb_invocations (gpointer key, gpointer data, gpointer user_data)
+{
+    struct BBExecutionFrequency *info = (struct BBExecutionFrequency *)data;
+    if (info->tb_dynamic_count)
+        fprintf(bb_out, ":%ld:%ld ", info->tbid, info->tb_invocation_count);
+}
+
 static void handle_interval_expiry(void)
 {
     if (!bb_out)
         return;
+
+    fprintf(bb_out, "#I");
+    g_hash_table_foreach(blocks, print_bb_invocations, NULL);
+    fprintf(bb_out, "\n");
 
     fprintf(bb_out, "T");
     g_hash_table_foreach(blocks, print_bb_freq, NULL);
@@ -107,6 +119,7 @@ static void vcpu_tb_exec(unsigned int cpu_index, void *udata)
     struct BBExecutionFrequency *info = (struct BBExecutionFrequency *)udata;
     insns_executed += info->n_insns;
     info->tb_dynamic_count += info->n_insns;
+    info->tb_invocation_count ++;
     if (insns_executed > insns_interval_length) {
         insns_executed -= insns_interval_length;
         info->tb_dynamic_count -= insns_executed;
@@ -127,6 +140,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         info->tbid = next_tbid++;
         info->tb_pc = pc;
         info->tb_dynamic_count = 0;
+        info->tb_invocation_count = 0;
         info->n_insns = n_insns;
         info->symbol = qemu_plugin_insn_symbol(qemu_plugin_tb_get_insn(tb, 0));
         g_hash_table_insert(blocks, (gpointer) pc, (gpointer) info);
