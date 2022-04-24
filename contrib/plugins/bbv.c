@@ -67,21 +67,15 @@ static void print_bb_freq (gpointer key, gpointer data, gpointer user_data)
     }
 }
 
-static void print_bb_invocations (gpointer key, gpointer data, gpointer user_data)
-{
-    struct BBExecutionFrequency *info = (struct BBExecutionFrequency *)data;
-    if (info->tb_dynamic_count)
-        fprintf(bb_out, ":%ld:%ld ", info->tbid, info->tb_invocation_count);
-}
-
-static void handle_interval_expiry(void)
+static void handle_interval_expiry(struct BBExecutionFrequency *info)
 {
     if (!bb_out)
         return;
 
-    fprintf(bb_out, "#I");
-    g_hash_table_foreach(blocks, print_bb_invocations, NULL);
-    fprintf(bb_out, "\n");
+    if (info)
+        fprintf(bb_out, "#E :%ld:%ld:%lx:%s\n", info->tbid,
+                info->tb_invocation_count, info->tb_pc,
+                info->symbol ? info->symbol : "");
 
     fprintf(bb_out, "T");
     g_hash_table_foreach(blocks, print_bb_freq, NULL);
@@ -93,7 +87,7 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
     GList *blocks_values, *it;
     g_autoptr(GString) report = g_string_new("");
 
-    handle_interval_expiry();
+    handle_interval_expiry(NULL);
     blocks_values = g_hash_table_get_values(blocks);
 
     if (pc_out) {
@@ -123,7 +117,7 @@ static void vcpu_tb_exec(unsigned int cpu_index, void *udata)
     if (insns_executed > insns_interval_length) {
         insns_executed -= insns_interval_length;
         info->tb_dynamic_count -= insns_executed;
-        handle_interval_expiry();
+        handle_interval_expiry(info);
         info->tb_dynamic_count = insns_executed;
     }
 }
