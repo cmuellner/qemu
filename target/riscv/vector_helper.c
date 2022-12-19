@@ -866,7 +866,6 @@ GEN_VEXT_VV(vsub_vv_w, 4)
 GEN_VEXT_VV(vsub_vv_d, 8)
 
 typedef void opivx2_fn(void *vd, target_long s1, void *vs2, int i);
-
 /*
  * (T1)s1 gives the real operator type.
  * (TX1)(T1)s1 expands the operator type of widen or narrow operations.
@@ -1258,6 +1257,10 @@ GEN_VEXT_VV(vxor_vv_b, 1)
 GEN_VEXT_VV(vxor_vv_h, 2)
 GEN_VEXT_VV(vxor_vv_w, 4)
 GEN_VEXT_VV(vxor_vv_d, 8)
+
+/* TODO */
+
+
 
 RVVCALL(OPIVX2, vand_vx_b, OP_SSS_B, H1, H1, DO_AND)
 RVVCALL(OPIVX2, vand_vx_h, OP_SSS_H, H2, H2, DO_AND)
@@ -3638,6 +3641,7 @@ GEN_VEXT_VF(vfwnmsac_vf_w, 8)
 
 /* Vector Floating-Point Square-Root Instruction */
 /* (TD, T2, TX2) */
+#define OP_UU_B uint8_t, uint8_t, uint8_t
 #define OP_UU_H uint16_t, uint16_t, uint16_t
 #define OP_UU_W uint32_t, uint32_t, uint32_t
 #define OP_UU_D uint64_t, uint64_t, uint64_t
@@ -5323,3 +5327,165 @@ GEN_VEXT_INT_EXT(vsext_vf2_d, int64_t, int32_t, H8, H4)
 GEN_VEXT_INT_EXT(vsext_vf4_w, int32_t, int8_t,  H4, H1)
 GEN_VEXT_INT_EXT(vsext_vf4_d, int64_t, int16_t, H8, H2)
 GEN_VEXT_INT_EXT(vsext_vf8_d, int64_t, int8_t,  H8, H1)
+
+/* Zvkb (vector bit-manipulation for vector-crypto) extension */
+
+#define DO_ANDN(N, M) (~N & M)
+#define DO_COPY(N) (N)
+
+static inline void clear_high(void *d, intptr_t oprsz, uint32_t desc)
+{
+    intptr_t maxsz = simd_maxsz(desc);
+    intptr_t i;
+
+    if (unlikely(maxsz > oprsz)) {
+        for (i = oprsz; i < maxsz; i += sizeof(uint64_t)) {
+            *(uint64_t *)(d + i) = 0;
+        }
+    }
+}
+
+void HELPER(vec_andn)(void *dptr, void *aptr, void *bptr, uint32_t desc)
+{
+    const intptr_t oprsz = simd_oprsz(desc);
+    const intptr_t ops = oprsz / sizeof(uint64_t);
+    uint64_t * const d = (uint64_t*)dptr;
+    uint64_t * const a = (uint64_t*)aptr;
+    uint64_t * const b = (uint64_t*)bptr;
+
+    for (intptr_t i = 0; i < ops; i++) {
+        d[i] = DO_ANDN(a[i], b[i]);
+    }
+    clear_high(d, oprsz, desc);
+}
+
+void HELPER(vec_andns)(void *dptr, void *aptr, uint64_t b, uint32_t desc)
+{
+    const intptr_t oprsz = simd_oprsz(desc);
+    const intptr_t ops = oprsz / sizeof(uint64_t);
+    uint64_t * const d = (uint64_t*)dptr;
+    uint64_t * const a = (uint64_t*)aptr;
+
+    for (intptr_t i = 0; i < ops; i += sizeof(uint64_t)) {
+        d[i] = DO_ANDN(a[i], b);
+    }
+    clear_high(d, oprsz, desc);
+}
+
+/* vandn.vv */
+RVVCALL(OPIVV2, vandn_vv_b, OP_SSS_B, H1, H1, H1, DO_ANDN)
+RVVCALL(OPIVV2, vandn_vv_h, OP_SSS_H, H2, H2, H2, DO_ANDN)
+RVVCALL(OPIVV2, vandn_vv_w, OP_SSS_W, H4, H4, H4, DO_ANDN)
+RVVCALL(OPIVV2, vandn_vv_d, OP_SSS_D, H8, H8, H8, DO_ANDN)
+GEN_VEXT_VV(vandn_vv_b, 1)
+GEN_VEXT_VV(vandn_vv_h, 2)
+GEN_VEXT_VV(vandn_vv_w, 4)
+GEN_VEXT_VV(vandn_vv_d, 8)
+
+/* vandn.vx */
+RVVCALL(OPIVX2, vandn_vx_b, OP_SSS_B, H1, H1, DO_ANDN)
+RVVCALL(OPIVX2, vandn_vx_h, OP_SSS_H, H2, H2, DO_ANDN)
+RVVCALL(OPIVX2, vandn_vx_w, OP_SSS_W, H4, H4, DO_ANDN)
+RVVCALL(OPIVX2, vandn_vx_d, OP_SSS_D, H8, H8, DO_ANDN)
+GEN_VEXT_VX(vandn_vx_b, 1)
+GEN_VEXT_VX(vandn_vx_h, 2)
+GEN_VEXT_VX(vandn_vx_w, 4)
+GEN_VEXT_VX(vandn_vx_d, 8)
+
+/* vrol.vv */
+GEN_VEXT_SHIFT_VV(vrol_vv_b, uint8_t,  uint8_t,  H1, H1, rol8,  0x7)
+GEN_VEXT_SHIFT_VV(vrol_vv_h, uint16_t, uint16_t, H2, H2, rol16, 0xf)
+GEN_VEXT_SHIFT_VV(vrol_vv_w, uint32_t, uint32_t, H4, H4, rol32, 0x1f)
+GEN_VEXT_SHIFT_VV(vrol_vv_d, uint64_t, uint64_t, H8, H8, rol64, 0x3f)
+
+/* vrol.vx */
+GEN_VEXT_SHIFT_VX(vrol_vx_b, uint8_t,  uint8_t,  H1, H1, rol8,  0x7)
+GEN_VEXT_SHIFT_VX(vrol_vx_h, uint16_t, uint16_t, H2, H2, rol16, 0xf)
+GEN_VEXT_SHIFT_VX(vrol_vx_w, uint32_t, uint32_t, H4, H4, rol32, 0x1f)
+GEN_VEXT_SHIFT_VX(vrol_vx_d, uint64_t, uint64_t, H8, H8, rol64, 0x3f)
+
+/* vror.vv */
+GEN_VEXT_SHIFT_VV(vror_vv_b, uint8_t,  uint8_t,  H1, H1, ror8,  0x7)
+GEN_VEXT_SHIFT_VV(vror_vv_h, uint16_t, uint16_t, H2, H2, ror16, 0xf)
+GEN_VEXT_SHIFT_VV(vror_vv_w, uint32_t, uint32_t, H4, H4, ror32, 0x1f)
+GEN_VEXT_SHIFT_VV(vror_vv_d, uint64_t, uint64_t, H8, H8, ror64, 0x3f)
+
+/* vror.vx */
+GEN_VEXT_SHIFT_VX(vror_vx_b, uint8_t,  uint8_t,  H1, H1, ror8,  0x7)
+GEN_VEXT_SHIFT_VX(vror_vx_h, uint16_t, uint16_t, H2, H2, ror16, 0xf)
+GEN_VEXT_SHIFT_VX(vror_vx_w, uint32_t, uint32_t, H4, H4, ror32, 0x1f)
+GEN_VEXT_SHIFT_VX(vror_vx_d, uint64_t, uint64_t, H8, H8, ror64, 0x3f)
+
+/* vbrev8.v */
+static uint64_t brev8(uint64_t val)
+{
+    val = ((val & 0x5555555555555555ull) << 1)
+        | ((val & 0xAAAAAAAAAAAAAAAAull) >> 1);
+    val = ((val & 0x3333333333333333ull) << 2)
+        | ((val & 0xCCCCCCCCCCCCCCCCull) >> 2);
+    val = ((val & 0x0F0F0F0F0F0F0F0Full) << 4)
+        | ((val & 0xF0F0F0F0F0F0F0F0ull) >> 4);
+
+    return val;
+}
+
+RVVCALL(OPIVV1, vbrev8_v_b, OP_UU_B, H1, H1, brev8)
+RVVCALL(OPIVV1, vbrev8_v_h, OP_UU_H, H2, H2, brev8)
+RVVCALL(OPIVV1, vbrev8_v_w, OP_UU_W, H4, H4, brev8)
+RVVCALL(OPIVV1, vbrev8_v_d, OP_UU_D, H8, H8, brev8)
+GEN_VEXT_V(vbrev8_v_b, 1)
+GEN_VEXT_V(vbrev8_v_h, 1)
+GEN_VEXT_V(vbrev8_v_w, 1)
+GEN_VEXT_V(vbrev8_v_d, 1)
+
+/* vrev8.v */
+RVVCALL(OPIVV1, vrev8_v_b, OP_UU_B, H1, H1, DO_COPY)
+RVVCALL(OPIVV1, vrev8_v_h, OP_UU_H, H2, H2, bswap16)
+RVVCALL(OPIVV1, vrev8_v_w, OP_UU_W, H4, H4, bswap32)
+RVVCALL(OPIVV1, vrev8_v_d, OP_UU_D, H8, H8, bswap64)
+GEN_VEXT_V(vrev8_v_b, 1)
+GEN_VEXT_V(vrev8_v_h, 2)
+GEN_VEXT_V(vrev8_v_w, 4)
+GEN_VEXT_V(vrev8_v_d, 8)
+
+/* vclmul.vv */
+static uint64_t clmul64(uint64_t x, uint64_t y)
+{
+    target_ulong result = 0;
+    const unsigned int elem_width = 64;
+
+    for (unsigned int i = 0; i < elem_width; ++i)
+        if ((y >> i) & 1)
+            result ^= (x << i);
+
+    return result;
+}
+
+static uint64_t clmulh64(uint64_t x, uint64_t y)
+{
+    target_ulong result = 0;
+    const unsigned int elem_width = 64;
+
+    for (unsigned int i = 1; i < elem_width; ++i)
+        if ((y >> i) & 1)
+            result ^= (x >> (elem_width - i));
+
+    return result;
+}
+
+/* vclmul.vv */
+RVVCALL(OPIVV2, vclmul_vv_d, OP_UUU_D, H8, H8, H8, clmul64)
+GEN_VEXT_VV(vclmul_vv_d, 8)
+
+/* vclmul.vx */
+RVVCALL(OPIVX2, vclmul_vx_d, OP_UUU_D, H8, H8, clmul64)
+GEN_VEXT_VX(vclmul_vx_d, 8)
+
+/* vclmulh.vv */
+RVVCALL(OPIVV2, vclmulh_vv_d, OP_UUU_D, H8, H8, H8, clmulh64)
+GEN_VEXT_VV(vclmulh_vv_d, 8)
+
+/* vclmulh.vx */
+RVVCALL(OPIVX2, vclmulh_vx_d, OP_UUU_D, H8, H8, clmulh64)
+GEN_VEXT_VX(vclmulh_vx_d, 8)
+

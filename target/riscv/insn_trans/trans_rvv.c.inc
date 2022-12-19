@@ -1235,9 +1235,6 @@ do_opivv_gvec(DisasContext *s, arg_rmrr *a, GVecGen3Fn *gvec_fn,
               gen_helper_gvec_4_ptr *fn)
 {
     TCGLabel *over = gen_new_label();
-    if (!opivv_check(s, a)) {
-        return false;
-    }
 
     tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
     tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
@@ -1264,15 +1261,23 @@ do_opivv_gvec(DisasContext *s, arg_rmrr *a, GVecGen3Fn *gvec_fn,
 }
 
 /* OPIVV with GVEC IR */
-#define GEN_OPIVV_GVEC_TRANS(NAME, SUF) \
+#define GEN_OPIVV_GVEC_TRANS_CHECK(NAME, SUF, CHECK) \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
 {                                                                  \
+    if (!CHECK(s, a)) {                                            \
+        return false;                                              \
+    }                                                              \
+                                                                   \
     static gen_helper_gvec_4_ptr * const fns[4] = {                \
         gen_helper_##NAME##_b, gen_helper_##NAME##_h,              \
         gen_helper_##NAME##_w, gen_helper_##NAME##_d,              \
     };                                                             \
     return do_opivv_gvec(s, a, tcg_gen_gvec_##SUF, fns[s->sew]);   \
 }
+
+/* OPIVV with GVEC IR */
+#define GEN_OPIVV_GVEC_TRANS(NAME, SUF) \
+  GEN_OPIVV_GVEC_TRANS_CHECK(NAME, SUF, opivv_check)
 
 GEN_OPIVV_GVEC_TRANS(vadd_vv, add)
 GEN_OPIVV_GVEC_TRANS(vsub_vv, sub)
@@ -1333,10 +1338,6 @@ static inline bool
 do_opivx_gvec(DisasContext *s, arg_rmrr *a, GVecGen2sFn *gvec_fn,
               gen_helper_opivx *fn)
 {
-    if (!opivx_check(s, a)) {
-        return false;
-    }
-
     if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
         TCGv_i64 src1 = tcg_temp_new_i64();
 
@@ -1352,15 +1353,22 @@ do_opivx_gvec(DisasContext *s, arg_rmrr *a, GVecGen2sFn *gvec_fn,
 }
 
 /* OPIVX with GVEC IR */
-#define GEN_OPIVX_GVEC_TRANS(NAME, SUF) \
+#define GEN_OPIVX_GVEC_TRANS_CHECK(NAME, SUF, CHECK) \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
 {                                                                  \
+    if (!CHECK(s, a)) {                                            \
+        return false;                                              \
+    }                                                              \
+                                                                   \
     static gen_helper_opivx * const fns[4] = {                     \
         gen_helper_##NAME##_b, gen_helper_##NAME##_h,              \
         gen_helper_##NAME##_w, gen_helper_##NAME##_d,              \
     };                                                             \
     return do_opivx_gvec(s, a, tcg_gen_gvec_##SUF, fns[s->sew]);   \
 }
+
+#define GEN_OPIVX_GVEC_TRANS(NAME, SUF) \
+  GEN_OPIVX_GVEC_TRANS_CHECK(NAME, SUF, opivx_check)
 
 GEN_OPIVX_GVEC_TRANS(vadd_vx, adds)
 GEN_OPIVX_GVEC_TRANS(vsub_vx, subs)
@@ -1426,6 +1434,7 @@ GEN_OPIVX_GVEC_TRANS(vrsub_vx, rsubs)
 
 typedef enum {
     IMM_ZX,         /* Zero-extended */
+    IMM_ZIMM6,
     IMM_SX,         /* Sign-extended */
     IMM_TRUNC_SEW,  /* Truncate to log(SEW) bits */
     IMM_TRUNC_2SEW, /* Truncate to log(2*SEW) bits */
@@ -1436,6 +1445,8 @@ static int64_t extract_imm(DisasContext *s, uint32_t imm, imm_mode_t imm_mode)
     switch (imm_mode) {
     case IMM_ZX:
         return extract64(imm, 0, 5);
+    case IMM_ZIMM6:
+        return extract64(imm, 0, 6);
     case IMM_SX:
         return sextract64(imm, 0, 5);
     case IMM_TRUNC_SEW:
@@ -1494,10 +1505,6 @@ static inline bool
 do_opivi_gvec(DisasContext *s, arg_rmrr *a, GVecGen2iFn *gvec_fn,
               gen_helper_opivx *fn, imm_mode_t imm_mode)
 {
-    if (!opivx_check(s, a)) {
-        return false;
-    }
-
     if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
         gvec_fn(s->sew, vreg_ofs(s, a->rd), vreg_ofs(s, a->rs2),
                 extract_imm(s, a->rs1, imm_mode), MAXSZ(s), MAXSZ(s));
@@ -1508,9 +1515,13 @@ do_opivi_gvec(DisasContext *s, arg_rmrr *a, GVecGen2iFn *gvec_fn,
 }
 
 /* OPIVI with GVEC IR */
-#define GEN_OPIVI_GVEC_TRANS(NAME, IMM_MODE, OPIVX, SUF) \
+#define GEN_OPIVI_GVEC_TRANS_CHECK(NAME, IMM_MODE, OPIVX, SUF, CHECK) \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
 {                                                                  \
+    if (!CHECK(s, a)) {                                            \
+        return false;                                              \
+    }                                                              \
+                                                                   \
     static gen_helper_opivx * const fns[4] = {                     \
         gen_helper_##OPIVX##_b, gen_helper_##OPIVX##_h,            \
         gen_helper_##OPIVX##_w, gen_helper_##OPIVX##_d,            \
@@ -1518,6 +1529,9 @@ static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
     return do_opivi_gvec(s, a, tcg_gen_gvec_##SUF,                 \
                          fns[s->sew], IMM_MODE);                   \
 }
+
+#define GEN_OPIVI_GVEC_TRANS(NAME, IMM_MODE, OPIVX, SUF) \
+  GEN_OPIVI_GVEC_TRANS_CHECK(NAME, IMM_MODE, OPIVX, SUF, opivx_check)
 
 GEN_OPIVI_GVEC_TRANS(vadd_vi, IMM_SX, vadd_vx, addi)
 
@@ -1698,36 +1712,45 @@ GEN_OPIWX_WIDEN_TRANS(vwadd_wx)
 GEN_OPIWX_WIDEN_TRANS(vwsubu_wx)
 GEN_OPIWX_WIDEN_TRANS(vwsub_wx)
 
+static bool opivv_trans(DisasContext *s, arg_rmrr *a,
+			gen_helper_gvec_4_ptr *fn)
+{
+    uint32_t data = 0;
+
+    data = FIELD_DP32(data, VDATA, VM, a->vm);
+    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+    data = FIELD_DP32(data, VDATA, VTA, s->vta);
+    data = FIELD_DP32(data, VDATA, VTA_ALL_1S, s->cfg_vta_all_1s);
+    data = FIELD_DP32(data, VDATA, VMA, s->vma);
+
+    TCGLabel *over = gen_new_label();
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
+    tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
+
+    tcg_gen_gvec_4_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),
+		       vreg_ofs(s, a->rs1),
+		       vreg_ofs(s, a->rs2), cpu_env,
+		       s->cfg_ptr->vlen / 8,
+		       s->cfg_ptr->vlen / 8, data,
+		       fn);
+
+    mark_vs_dirty(s);
+    gen_set_label(over);
+
+    return true;
+}
+
 /* Vector Integer Add-with-Carry / Subtract-with-Borrow Instructions */
 /* OPIVV without GVEC IR */
 #define GEN_OPIVV_TRANS(NAME, CHECK)                               \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
 {                                                                  \
     if (CHECK(s, a)) {                                             \
-        uint32_t data = 0;                                         \
         static gen_helper_gvec_4_ptr * const fns[4] = {            \
             gen_helper_##NAME##_b, gen_helper_##NAME##_h,          \
             gen_helper_##NAME##_w, gen_helper_##NAME##_d,          \
         };                                                         \
-        TCGLabel *over = gen_new_label();                          \
-        tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);          \
-        tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over); \
-                                                                   \
-        data = FIELD_DP32(data, VDATA, VM, a->vm);                 \
-        data = FIELD_DP32(data, VDATA, LMUL, s->lmul);             \
-        data = FIELD_DP32(data, VDATA, VTA, s->vta);               \
-        data =                                                     \
-            FIELD_DP32(data, VDATA, VTA_ALL_1S, s->cfg_vta_all_1s);\
-        data = FIELD_DP32(data, VDATA, VMA, s->vma);               \
-        tcg_gen_gvec_4_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),     \
-                           vreg_ofs(s, a->rs1),                    \
-                           vreg_ofs(s, a->rs2), cpu_env,           \
-                           s->cfg_ptr->vlen / 8,                   \
-                           s->cfg_ptr->vlen / 8, data,             \
-                           fns[s->sew]);                           \
-        mark_vs_dirty(s);                                          \
-        gen_set_label(over);                                       \
-        return true;                                               \
+	return opivv_trans(s, a, fns[s->sew]);                     \
     }                                                              \
     return false;                                                  \
 }
@@ -1838,10 +1861,6 @@ static inline bool
 do_opivx_gvec_shift(DisasContext *s, arg_rmrr *a, GVecGen2sFn32 *gvec_fn,
                     gen_helper_opivx *fn)
 {
-    if (!opivx_check(s, a)) {
-        return false;
-    }
-
     if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
         TCGv_i32 src1 = tcg_temp_new_i32();
 
@@ -1857,9 +1876,13 @@ do_opivx_gvec_shift(DisasContext *s, arg_rmrr *a, GVecGen2sFn32 *gvec_fn,
     return opivx_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
 }
 
-#define GEN_OPIVX_GVEC_SHIFT_TRANS(NAME, SUF) \
+#define GEN_OPIVX_GVEC_SHIFT_TRANS_CHECK(NAME, SUF, CHECK) \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                    \
 {                                                                         \
+    if (!CHECK(s, a)) {                                                   \
+        return false;                                                     \
+    }                                                                     \
+                                                                          \
     static gen_helper_opivx * const fns[4] = {                            \
         gen_helper_##NAME##_b, gen_helper_##NAME##_h,                     \
         gen_helper_##NAME##_w, gen_helper_##NAME##_d,                     \
@@ -1867,6 +1890,9 @@ static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                    \
                                                                           \
     return do_opivx_gvec_shift(s, a, tcg_gen_gvec_##SUF, fns[s->sew]);    \
 }
+
+#define GEN_OPIVX_GVEC_SHIFT_TRANS(NAME, SUF) \
+  GEN_OPIVX_GVEC_SHIFT_TRANS_CHECK(NAME, SUF, opivx_check)
 
 GEN_OPIVX_GVEC_SHIFT_TRANS(vsll_vx,  shls)
 GEN_OPIVX_GVEC_SHIFT_TRANS(vsrl_vx,  shrs)
@@ -3921,3 +3947,186 @@ GEN_INT_EXT_TRANS(vzext_vf8, 3, 2)
 GEN_INT_EXT_TRANS(vsext_vf2, 1, 3)
 GEN_INT_EXT_TRANS(vsext_vf4, 2, 4)
 GEN_INT_EXT_TRANS(vsext_vf8, 3, 5)
+
+/* Zvk* (vector crypto) */
+
+static bool opiv_trans(DisasContext *s, arg_rmr *a,
+		       gen_helper_gvec_3_ptr * fn)
+{
+    uint32_t data = 0;
+
+    data = FIELD_DP32(data, VDATA, VM, a->vm);
+    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+    data = FIELD_DP32(data, VDATA, VTA, s->vta);
+    data = FIELD_DP32(data, VDATA, VTA_ALL_1S, s->cfg_vta_all_1s);
+    data = FIELD_DP32(data, VDATA, VMA, s->vma);
+
+    TCGLabel *over = gen_new_label();
+    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
+    tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
+
+    tcg_gen_gvec_3_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),
+                       vreg_ofs(s, a->rs2), cpu_env,
+                       s->cfg_ptr->vlen / 8,
+                       s->cfg_ptr->vlen / 8, data,
+                       fn);
+    mark_vs_dirty(s);
+    gen_set_label(over);
+
+    return true;
+}
+
+/* OPIV without GVEC IR */
+#define GEN_OPIV_TRANS(NAME, CHECK)                                \
+static bool trans_##NAME(DisasContext *s, arg_##NAME *a)           \
+{                                                                  \
+    if (CHECK(s, a)) {                                             \
+        static gen_helper_gvec_3_ptr * const fns[4] = {            \
+            gen_helper_##NAME##_b, gen_helper_##NAME##_h,          \
+            gen_helper_##NAME##_w, gen_helper_##NAME##_d,          \
+        };                                                         \
+	return opiv_trans(s, a, fns[s->sew]);                      \
+    }                                                              \
+    return false;                                                  \
+}
+
+/* Zvkb (vector bit-manipulation for vector-crypto) extension */
+
+static bool require_zvkb(DisasContext *s)
+{
+    if (!s->cfg_ptr->ext_zvkb)
+       return false;
+
+    return true;
+}
+
+static bool zvkb_check_vv(DisasContext *s, arg_rmrr *a)
+{
+    return require_zvkb(s) && opivv_check(s, a);;
+}
+
+static bool zvkb_check_vx(DisasContext *s, arg_rmrr *a)
+{
+    return require_zvkb(s) && opivx_check(s, a);
+}
+
+static bool zvkb_check_vi(DisasContext *s, arg_rmrr *a)
+{
+    return require_zvkb(s) && opivx_check(s, a);
+}
+
+static bool zvkb_check_v(DisasContext *s, arg_rmr *a)
+{
+    return require_zvkb(s);
+}
+
+/* Synthesize a rotate-right from a negate(shift-amount) + rotate-left */
+static void tcg_gen_gvec_rotrs(unsigned vece, uint32_t dofs, uint32_t aofs,
+                       TCGv_i32 shift, uint32_t oprsz, uint32_t maxsz)
+{
+    TCGv_i32 tmp = tcg_temp_new_i32();
+    tcg_gen_neg_i32(tmp, shift);
+    tcg_gen_gvec_rotls(vece, dofs, aofs, tmp, oprsz, maxsz);
+    tcg_temp_free_i32(tmp);
+}
+
+static void gen_andn_i64(TCGv_i64 ret, TCGv_i64 arg1, TCGv_i64 arg2)
+{
+    tcg_gen_andc_i64(ret, arg1, arg2);
+}
+
+static void gen_andn_vec(unsigned vece, TCGv_vec r, TCGv_vec a, TCGv_vec b)
+{
+    tcg_gen_andc_vec(vece, r, b, a);
+}
+
+static void tcg_gen_gvec_andn(unsigned vece, uint32_t dofs, uint32_t aofs,
+                       uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
+{
+    static const GVecGen3 g = {
+        .fni8 = gen_andn_i64,
+        .fniv = gen_andn_vec,
+        .fno = gen_helper_vec_andn,
+        .prefer_i64 = TCG_TARGET_REG_BITS == 64,
+    };
+
+    if (aofs == bofs) {
+        tcg_gen_gvec_dup_imm(MO_64, dofs, oprsz, maxsz, 0);
+    } else {
+        tcg_gen_gvec_3(dofs, aofs, bofs, oprsz, maxsz, &g);
+    }
+}
+
+static void tcg_gen_gvec_andns(unsigned vece, uint32_t dofs, uint32_t aofs,
+			       TCGv_i64 c, uint32_t oprsz, uint32_t maxsz)
+{
+    static const GVecGen2s g = {
+	.fni8 = gen_andn_i64,
+	.fniv = gen_andn_vec,
+	.fno = gen_helper_vec_andns,
+	.prefer_i64 = TCG_TARGET_REG_BITS == 64,
+    };
+
+    tcg_gen_gvec_2s(dofs, aofs, oprsz, maxsz, c, &g);
+}
+
+static void tcg_gen_gvec_andni(unsigned vece, uint32_t dofs, uint32_t aofs,
+                               int64_t c, uint32_t oprsz, uint32_t maxsz)
+{
+    TCGv_i64 tmp = tcg_constant_i64(c);
+    tcg_gen_gvec_andns(vece, dofs, aofs, tmp, oprsz, maxsz);
+}
+
+/* vandn.v[vxi] */
+GEN_OPIVV_GVEC_TRANS_CHECK(vandn_vv, andn, zvkb_check_vv)
+GEN_OPIVX_GVEC_TRANS_CHECK(vandn_vx, andns, zvkb_check_vx)
+GEN_OPIVI_GVEC_TRANS_CHECK(vandn_vi, IMM_SX, vandn_vx, andni, zvkb_check_vi)
+
+/* vrol.v[vx] */
+GEN_OPIVV_GVEC_TRANS_CHECK(vrol_vv, rotlv, zvkb_check_vv)
+GEN_OPIVX_GVEC_SHIFT_TRANS_CHECK(vrol_vx, rotls, zvkb_check_vx)
+
+/* vror.v[vxi] */
+GEN_OPIVV_GVEC_TRANS_CHECK(vror_vv, rotrv, zvkb_check_vv)
+GEN_OPIVX_GVEC_SHIFT_TRANS_CHECK(vror_vx, rotrs, zvkb_check_vx)
+GEN_OPIVI_GVEC_TRANS_CHECK(vror_vi, IMM_ZIMM6, vror_vx, rotri, zvkb_check_vi)
+
+/* vbrev8.v */
+GEN_OPIV_TRANS(vbrev8_v, zvkb_check_v)
+
+/* vrev8.v */
+GEN_OPIV_TRANS(vrev8_v, zvkb_check_v)
+
+/* vclmul.[vx] */
+static bool trans_vclmul_vv(DisasContext *s, arg_rmrr *a)
+{
+    if (!zvkb_check_vv(s, a) || s->sew != MO_64)
+        return false;
+
+    return opivv_trans(s, a, gen_helper_vclmul_vv_d);
+}
+
+static bool trans_vclmul_vx(DisasContext *s, arg_rmrr *a)
+{
+    if (!zvkb_check_vv(s, a) || s->sew != MO_64)
+        return false;
+
+    return opivx_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vclmul_vx_d, s);
+}
+
+/* vclmulh.[vx] */
+static bool trans_vclmulh_vv(DisasContext *s, arg_rmrr *a)
+{
+    if (!zvkb_check_vv(s, a) || s->sew != MO_64)
+        return false;
+
+    return opivv_trans(s, a, gen_helper_vclmulh_vv_d);
+}
+
+static bool trans_vclmulh_vx(DisasContext *s, arg_rmrr *a)
+{
+    if (!zvkb_check_vv(s, a) || s->sew != MO_64)
+	return false;
+
+    return opivx_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vclmulh_vx_d, s);
+}
