@@ -27,6 +27,7 @@
 #include "tcg/tcg-gvec-desc.h"
 #include "internals.h"
 #include <math.h>
+#include "crypto/aes.h"
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
                             target_ulong s2)
@@ -1261,6 +1262,347 @@ GEN_VEXT_VV(vxor_vv_d, 8)
 /* TODO */
 
 
+
+void HELPER(vaeskf1_vi)(void *vd, void *vs0, target_ulong s1, void *vs2,
+                        CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+//    fprintf(stderr, "%s: oprsz %" PRIxPTR ", s1 %lu\n", __PRETTY_FUNCTION__, oprsz, (unsigned long)s1);
+
+    static const uint8_t kRoundConstants[10] = {
+        0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
+    };
+
+    // TODO: +16 cleanup
+    for (i = 0; i < oprsz; i += 16) {
+        /* 'temp' is extracted from the last (most significant) word of key[i]. */
+        uint32_t temp = ((uint32_t*)(vs2 + i))[3];
+//        printf("vaeskf1 temp(%08x) vs2 word3\n", temp);
+        temp = ror32(temp, 8);
+//        printf("vaeskf1 temp(%08x) after RotWord\n", temp);
+        temp = ((uint32_t)AES_sbox[(temp >> 24) & 0xFF] << 24) |
+            ((uint32_t)AES_sbox[(temp >> 16) & 0xFF] << 16) |
+            ((uint32_t)AES_sbox[(temp >> 8) & 0xFF] << 8) |
+            ((uint32_t)AES_sbox[(temp >> 0) & 0xFF] << 0);
+//        printf("vaeskf1: temp(%08x) after SubWord\n", temp);
+        
+        const uint32_t rcon = kRoundConstants[s1 - 1];
+//        printf("vaeskf1 rcon(%08x)", rcon);
+        temp = temp ^ rcon;
+//        printf("vaeskf1 temp(%08x) after xor w/ rcon\n", temp);
+
+#if 0        
+        printf("vaeskf1 old %08x_%08x_%08x_%08x\n",
+               ((uint32_t *)(vs2 + i))[0], ((uint32_t *)(vs2 + i))[1],
+               ((uint32_t *)(vs2 + i))[2], ((uint32_t *)(vs2 + i))[3]);
+#endif        
+        ((uint32_t *)(vd + i))[0] = ((uint32_t *)(vs2 + i))[0] ^ temp;
+        ((uint32_t *)(vd + i))[1] = ((uint32_t *)(vs2 + i))[1] ^ ((uint32_t *)(vd + i))[0];
+        ((uint32_t *)(vd + i))[2] = ((uint32_t *)(vs2 + i))[2] ^ ((uint32_t *)(vd + i))[1];
+        ((uint32_t *)(vd + i))[3] = ((uint32_t *)(vs2 + i))[3] ^ ((uint32_t *)(vd + i))[2];
+#if 0        
+        printf("= vaeskf1 new %08x_%08x_%08x_%08x\n",
+               ((uint32_t *)(vd + i))[0], ((uint32_t *)(vd + i))[1],
+               ((uint32_t *)(vd + i))[2], ((uint32_t *)(vd + i))[3]);
+#endif        
+    }
+}
+
+void HELPER(vaeskf2_vi)(void *vd, void *vs0, target_ulong s1, void *vs2,
+                        CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    int round = s1;
+    const bool is_odd_round = round & 1;
+    
+//    fprintf(stderr, "%s: oprsz %" PRIxPTR ", s1 %lu\n", __PRETTY_FUNCTION__, oprsz, (unsigned long)s1);
+
+    static const uint8_t kRoundConstants[7] = {
+        0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40
+    };
+
+    // TODO: +16 cleanup
+    for (i = 0; i < oprsz; i += 16) {
+        /* 'temp' is extracted from the last (most significant) word of key[i]. */
+        uint32_t temp = ((uint32_t*)(vs2 + i))[3];
+//        printf("vaeskf2 temp(%08x) vs2 word3\n", temp);
+        if (is_odd_round) {
+            temp = ror32(temp, 8);
+//            printf("vaeskf2 temp(%08x) after RotWord\n", temp);
+        }
+        temp = ((uint32_t)AES_sbox[(temp >> 24) & 0xFF] << 24) |
+            ((uint32_t)AES_sbox[(temp >> 16) & 0xFF] << 16) |
+            ((uint32_t)AES_sbox[(temp >> 8) & 0xFF] << 8) |
+            ((uint32_t)AES_sbox[(temp >> 0) & 0xFF] << 0);
+//        printf("vaeskf2: temp(%08x) after SubWord\n", temp);
+
+        if (is_odd_round) {
+            const uint32_t rcon = kRoundConstants[round >> 1];
+//            printf("vaeskf2 rcon(%08x)", rcon);
+            temp = temp ^ rcon;
+//            printf("vaeskf2 temp(%08x) after xor w/ rcon\n", temp);
+        }
+
+#if 0        
+        printf("vaeskf2 old %08x_%08x_%08x_%08x\n",
+               ((uint32_t *)(vs2 + i))[0], ((uint32_t *)(vs2 + i))[1],
+               ((uint32_t *)(vs2 + i))[2], ((uint32_t *)(vs2 + i))[3]);
+#endif        
+        ((uint32_t *)(vd + i))[0] = ((uint32_t *)(vd + i))[0] ^ temp;
+        ((uint32_t *)(vd + i))[1] = ((uint32_t *)(vd + i))[1] ^ ((uint32_t *)(vd + i))[0];
+        ((uint32_t *)(vd + i))[2] = ((uint32_t *)(vd + i))[2] ^ ((uint32_t *)(vd + i))[1];
+        ((uint32_t *)(vd + i))[3] = ((uint32_t *)(vd + i))[3] ^ ((uint32_t *)(vd + i))[2];
+#if 0
+        printf("= vaeskf2 new %08x_%08x_%08x_%08x\n",
+               ((uint32_t *)(vd + i))[0], ((uint32_t *)(vd + i))[1],
+               ((uint32_t *)(vd + i))[2], ((uint32_t *)(vd + i))[3]);
+#endif        
+    }
+}
+
+static void vaes_sub_bytes(uint8_t* state, uint32_t width)
+{
+    for (int i = 0; i < width; ++i)
+        state[i] = AES_sbox[state[i]];
+}
+
+static void vaes_inv_sub_bytes(uint8_t* state, uint32_t width)
+{
+    for (int i = 0; i < width; ++i)
+        state[i] = AES_isbox[state[i]];
+}
+
+static uint8_t vaes_xtime(uint8_t a)
+{
+    return (a << 1) ^ ((a & 0x80) ? 0x1b : 0);
+}
+
+static uint8_t vaes_gfmul(uint8_t a, const uint8_t b)
+{
+    return (((b & 0x1) ? a : 0) ^
+            ((b & 0x2) ? vaes_xtime(a) : 0) ^
+            ((b & 0x4) ? vaes_xtime(vaes_xtime(a)) : 0) ^
+            ((b & 0x8) ? vaes_xtime(vaes_xtime(vaes_xtime(a))) : 0));
+}
+
+static void vaes_shift_rows(uint8_t* state)
+{
+    /* Row 0 (byte indices 0, 4, 8, 12) does not rotate. */
+    /* Row 1 (byte indices 1, 5, 9, 13) rotates left by 1 position. */
+    uint8_t tmp = state[1];
+    state[1] = state[5];
+    state[5] = state[9];
+    state[9] = state[13];
+    state[13] = tmp;
+    /* Row 2 (byte indices 2, 6, 10, 14) rotates by 2 positions. */
+    tmp = state[2];
+    state[2] = state[10];
+    state[10] = tmp;
+    tmp = state[6];
+    state[6] = state[14];
+    state[14] = tmp;
+    /* Row 3 (byte indices 3, 7, 11, 15) rotates by 3 position (or -1). */
+    tmp = state[3];
+    state[3] = state[15];
+    state[15] = state[11];
+    state[11] = state[7];
+    state[7] = tmp;
+}
+
+static void vaes_inv_shift_rows(uint8_t* state)
+{
+    /* Row 0 (byte indices 0, 4, 8, 12) does not rotate. */
+    /* Row 1 (byte indices 1, 5, 9, 13) rotates left by 1 position. */
+    uint8_t tmp = state[1];
+    state[1] = state[13];
+    state[13] = state[9];
+    state[9] = state[5];
+    state[5] = tmp;
+    /* Row 2 (byte indices 2, 6, 10, 14) rotates by 2 positions. */
+    tmp = state[2];
+    state[2] = state[10];
+    state[10] = tmp;
+    tmp = state[6];
+    state[6] = state[14];
+    state[14] = tmp;
+    /* Row 3 (byte indices 3, 7, 11, 15) rotates by 3 position (or -1). */
+    tmp = state[3];
+    state[3] = state[7];
+    state[7] = state[11];
+    state[11] = state[15];
+    state[15] = tmp;
+}
+
+static uint8_t vaes_mix_column_byte(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+    return vaes_gfmul(a, 0x2) ^ vaes_gfmul(b, 0x3) ^ c ^ d;
+}
+
+static void vaes_mix_column(uint8_t *state, uint32_t col_idx)
+{
+    uint8_t *column = &state[col_idx * 4];
+    const uint8_t b0 = column[0];
+    const uint8_t b1 = column[1];
+    const uint8_t b2 = column[2];
+    const uint8_t b3 = column[3];
+    /* Every iteration rotates the byte indices by 1 */
+    column[0] = vaes_mix_column_byte(b0, b1, b2, b3);
+    column[1] = vaes_mix_column_byte(b1, b2, b3, b0);
+    column[2] = vaes_mix_column_byte(b2, b3, b0, b1);
+    column[3] = vaes_mix_column_byte(b3, b0, b1, b2);            
+}
+
+static void vaes_mix_columns(uint8_t *state)
+{
+    for (int i = 0; i < 4; ++i)
+        vaes_mix_column(state, i);
+}
+
+static uint8_t vaes_inv_mix_column_byte(uint8_t a, uint8_t b, uint8_t c, uint8_t d)
+{
+    return vaes_gfmul(a, 0xe) ^ vaes_gfmul(b, 0xb) ^ vaes_gfmul(c, 0xd) ^ vaes_gfmul(d, 0x9);
+}
+
+static void vaes_inv_mix_column(uint8_t *state, uint32_t col_idx)
+{
+    uint8_t *column = &state[col_idx * 4];
+    const uint8_t b0 = column[0];
+    const uint8_t b1 = column[1];
+    const uint8_t b2 = column[2];
+    const uint8_t b3 = column[3];
+    /* Every iteration rotates the byte indices by 1 */
+    column[0] = vaes_inv_mix_column_byte(b0, b1, b2, b3);
+    column[1] = vaes_inv_mix_column_byte(b1, b2, b3, b0);
+    column[2] = vaes_inv_mix_column_byte(b2, b3, b0, b1);
+    column[3] = vaes_inv_mix_column_byte(b3, b0, b1, b2);            
+}
+
+static void vaes_inv_mix_columns(uint8_t *state)
+{
+    for (int i = 0; i < 4; ++i)
+        vaes_inv_mix_column(state, i);
+}
+
+static inline void vaes_xor(void *state, void *key)
+{
+    *(uint64_t*)(state) ^= *(uint64_t*)(key);
+    *(uint64_t*)(state + 8) ^= *(uint64_t*)(key + 8);
+}
+
+static void do_vaesem(void *state, void *key)
+{
+    vaes_sub_bytes(state, 16);
+    vaes_shift_rows(state);
+    vaes_mix_columns(state);
+    vaes_xor(state, key);
+}
+
+static void do_vaesef(void *state, void *key)
+{
+    vaes_sub_bytes(state, 16);
+    vaes_shift_rows(state);
+    vaes_xor(state, key);
+}
+
+static void do_vaesdm(void *state, void *key)
+{
+    vaes_inv_shift_rows(state);
+    vaes_inv_sub_bytes(state, 16);
+    vaes_xor(state, key);
+    vaes_inv_mix_columns(state);
+}
+
+static void do_vaesdf(void *state, void *key)
+{
+    vaes_inv_shift_rows(state);
+    vaes_inv_sub_bytes(state, 16);
+    vaes_xor(state, key);
+}
+
+void HELPER(vaesem_vv)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesem(vd + i, vs2 + i);
+    }    
+}
+
+void HELPER(vaesem_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesem(vd + i, vs2);
+    }    
+}
+
+void HELPER(vaesef_vv)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesef(vd + i, vs2 + i);
+    }    
+}
+
+void HELPER(vaesef_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesef(vd + i, vs2);
+    }    
+}
+
+void HELPER(vaesdm_vv)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesdm(vd + i, vs2 + i);
+    }
+}
+
+void HELPER(vaesdm_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesdm(vd + i, vs2);
+    }
+}
+
+void HELPER(vaesdf_vv)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesdf(vd + i, vs2 + i);
+    }
+}
+
+void HELPER(vaesdf_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_vaesdf(vd + i, vs2);
+    }
+}
+
+void HELPER(vaesz_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        vaes_xor(vd + i, vs2);
+    }
+}
 
 RVVCALL(OPIVX2, vand_vx_b, OP_SSS_B, H1, H1, DO_AND)
 RVVCALL(OPIVX2, vand_vx_h, OP_SSS_H, H2, H2, DO_AND)

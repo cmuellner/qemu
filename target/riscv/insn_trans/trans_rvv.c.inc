@@ -4130,3 +4130,88 @@ static bool trans_vclmulh_vx(DisasContext *s, arg_rmrr *a)
 
     return opivx_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vclmulh_vx_d, s);
 }
+
+/* Zvkns (vector crypto: NIST AES suite) extension */
+
+static bool require_zvkns(DisasContext *s)
+{
+    if (!s->cfg_ptr->ext_zvkns)
+       return false;
+
+    return true;
+}
+
+static bool zvkns_check_vi(DisasContext *s, arg_rmrr *a)
+{
+    return require_zvkns(s) &&
+	   vext_check_isa_ill(s) &&
+	   s->sew == MO_32;
+}
+
+static bool zvkns_check_vv(DisasContext *s, arg_rmr *a)
+{
+    return require_zvkns(s) &&
+	   vext_check_isa_ill(s) &&
+	   s->sew == MO_32;
+}
+
+static bool zvkns_check_vs(DisasContext *s, arg_rmr *a)
+{
+    return require_zvkns(s) &&
+	   vext_check_isa_ill(s) &&
+	   require_noover(a->rd, 0, a->rs2, s->lmul) &&
+	   s->sew == MO_32;
+}
+
+#define GEN_ZKNS_OPIVV_TRANS(NAME, CHECK) \
+static bool trans_##NAME(DisasContext *s, arg_##NAME *a)           \
+{                                                                  \
+    if (CHECK(s,a)) {                                              \
+        return opiv_trans(s, a, gen_helper_##NAME);                \
+    }                                                              \
+    return false;                                                  \
+}
+
+static bool trans_vaeskf1_vi(DisasContext *s, arg_vaeskf1_vi *a)
+{
+    if (!zvkns_check_vi(s, a))
+        return false;
+
+    /* The round number, which ranges from 1 to 10, comes from
+       uimm[3:0]; uimm[4] is ignored. */
+    unsigned int round = a->rs1 & 0xf;
+
+    /* Out-of-range uimm[3:0] values of 0 and 11-15 are dealt with
+       by inverting uimm[3]. */
+    if (round == 0 || round >= 11)
+        round ^= 0b1000;
+
+    return opivi_trans(a->rd, round, a->rs2, a->vm, gen_helper_vaeskf1_vi, s, IMM_ZX);
+}
+
+static bool trans_vaeskf2_vi(DisasContext *s, arg_vaeskf2_vi *a)
+{
+    if (!zvkns_check_vi(s, a))
+        return false;
+
+    /* The round number, which ranges from 2 to 14, comes from
+       uimm[3:0]; uimm[4] is ignored. */
+    unsigned int round = a->rs1 & 0xf;
+
+    /* Out-of-range uimm[3:0] values of 0-1 and 15 are dealt with
+       by inverting uimm[3]. */
+    if (round <= 1 || round == 15)
+        round ^= 0b1000;
+
+    return opivi_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vaeskf2_vi, s, IMM_ZX);
+}
+
+GEN_ZKNS_OPIVV_TRANS(vaesem_vv, zvkns_check_vv)
+GEN_ZKNS_OPIVV_TRANS(vaesem_vs, zvkns_check_vs)
+GEN_ZKNS_OPIVV_TRANS(vaesef_vv, zvkns_check_vv)
+GEN_ZKNS_OPIVV_TRANS(vaesef_vs, zvkns_check_vs)
+GEN_ZKNS_OPIVV_TRANS(vaesdm_vv, zvkns_check_vv)
+GEN_ZKNS_OPIVV_TRANS(vaesdm_vs, zvkns_check_vs)
+GEN_ZKNS_OPIVV_TRANS(vaesdf_vv, zvkns_check_vv)
+GEN_ZKNS_OPIVV_TRANS(vaesdf_vs, zvkns_check_vs)
+GEN_ZKNS_OPIVV_TRANS(vaesz_vs, zvkns_check_vs)
