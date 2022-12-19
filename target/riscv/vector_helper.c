@@ -1938,6 +1938,7 @@ void HELPER(vsha2ch_vv_d)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURIS
     }
 }
 
+
 RVVCALL(OPIVX2, vand_vx_b, OP_SSS_B, H1, H1, DO_AND)
 RVVCALL(OPIVX2, vand_vx_h, OP_SSS_H, H2, H2, DO_AND)
 RVVCALL(OPIVX2, vand_vx_w, OP_SSS_W, H4, H4, DO_AND)
@@ -6236,5 +6237,140 @@ void HELPER(vghmac_vv_w)(void *vd, void *v0, void* vs1, void *vs2,
         z = int128_brevEGU32x4(z);
         z = int128_xor(z, x);
         int128_store_EGU32x4(z, (vd + i));
+    }
+}
+
+/* Zvksh (Vector ShangMi Suite: SM3 Secure Hash) extension */
+
+#define EXTRACT_EGU32x8_WORDS_LE_BSWAP(X, W0, W1, W2, W3, W4, W5, W6, W7) \
+    uint32_t W0 = bswap32(((uint32_t *)X)[0]);                           \
+    uint32_t W1 = bswap32(((uint32_t *)X)[1]);                           \
+    uint32_t W2 = bswap32(((uint32_t *)X)[2]);                           \
+    uint32_t W3 = bswap32(((uint32_t *)X)[3]);                           \
+    uint32_t W4 = bswap32(((uint32_t *)X)[4]);                           \
+    uint32_t W5 = bswap32(((uint32_t *)X)[5]);                           \
+    uint32_t W6 = bswap32(((uint32_t *)X)[6]);                           \
+    uint32_t W7 = bswap32(((uint32_t *)X)[7]);
+
+#define SET_EGU32x8_WORDS_LE_BSWAP(X, W0, W1, W2, W3, W4, W5, W6, W7) \
+    ((uint32_t *)X)[0] = bswap32(W0); \
+    ((uint32_t *)X)[1] = bswap32(W1); \
+    ((uint32_t *)X)[2] = bswap32(W2); \
+    ((uint32_t *)X)[3] = bswap32(W3); \
+    ((uint32_t *)X)[4] = bswap32(W4); \
+    ((uint32_t *)X)[5] = bswap32(W5); \
+    ((uint32_t *)X)[6] = bswap32(W6); \
+    ((uint32_t *)X)[7] = bswap32(W7);
+
+#define FF1(X, Y, Z) ((X) ^ (Y) ^ (Z))
+#define FF2(X, Y, Z) (((X) & (Y)) | ((X) & (Z)) | ((Y) & (Z)))
+
+// Boolean function FF_j - section 4.3. of the IETF draft.
+#define ZVKSH_FF(X, Y, Z, J) (((J) <= 15) ? FF1(X, Y, Z) : FF2(X, Y, Z))
+
+#define GG1(X, Y, Z) ((X) ^ (Y) ^ (Z))
+#define GG2(X, Y, Z) (((X) & (Y)) | ((~(X)) & (Z)))
+
+// Boolean function GG_j - section 4.3. of the IETF draft.
+#define ZVKSH_GG(X, Y, Z, J) (((J) <= 15) ? GG1(X, Y, Z) : GG2(X, Y, Z))
+
+#define T1 0x79CC4519
+#define T2 0x7A879D8A
+
+// T_j constant - section 4.2. of the IETF draft.
+#define ZVKSH_T(J) (((J) <= 15) ? (T1) : (T2))
+
+/* vsm3me.vv */
+
+static inline uint32_t ZVKSH_P0(uint32_t X)
+{
+    return X ^ rol32(X,  9) ^ rol32(X, 17);
+}
+
+static inline uint32_t ZVKSH_P1(uint32_t X)
+{
+    return X ^ rol32(X, 15) ^ rol32(X, 23);
+}
+
+static inline uint32_t ZVKSH_W(uint32_t M16, uint32_t M9, uint32_t M3, uint32_t M13, uint32_t M6)
+{
+    return ZVKSH_P1( M16 ^ M9 ^ rol32(M3, 15) ) ^ rol32(M13, 7) ^ M6;
+}
+
+void HELPER(vsm3me_vv_w)(void *vd, void *v0, void* vs1, void *vs2,
+                         CPURISCVState *env, uint32_t desc)
+{
+    for (int i = env->vstart; i < env->vl / 4; i += 32) {
+        EXTRACT_EGU32x8_WORDS_LE_BSWAP(vs1 + i, w0, w1, w2, w3, w4, w5, w6, w7);
+        EXTRACT_EGU32x8_WORDS_LE_BSWAP(vs2 + i, w8, w9, w10, w11, w12, w13, w14, w15);
+
+        const uint32_t w16 = ZVKSH_W(w0,  w7, w13,  w3, w10);
+        const uint32_t w17 = ZVKSH_W(w1,  w8, w14,  w4, w11);
+        const uint32_t w18 = ZVKSH_W(w2,  w9, w15,  w5, w12);
+        const uint32_t w19 = ZVKSH_W(w3, w10, w16,  w6, w13);
+        const uint32_t w20 = ZVKSH_W(w4, w11, w17,  w7, w14);
+        const uint32_t w21 = ZVKSH_W(w5, w12, w18,  w8, w15);
+        const uint32_t w22 = ZVKSH_W(w6, w13, w19,  w9, w16);
+        const uint32_t w23 = ZVKSH_W(w7, w14, w20, w10, w17);
+
+        SET_EGU32x8_WORDS_LE_BSWAP(vd + i, w16, w17, w18, w19, w20, w21, w22, w23);
+    }
+}
+
+/* vsm3c.vi */
+
+void HELPER(vsm3c_vi_w)(void *vd, void *vs0, target_ulong round, void *vs2,
+                        CPURISCVState *env, uint32_t desc)
+{
+    for (int i = env->vstart; i < env->vl / 4; i += 32) {
+        EXTRACT_EGU32x8_WORDS_LE_BSWAP(vd + i, A, B, C, D, E, F, G, H);
+        EXTRACT_EGU32x8_WORDS_LE_BSWAP(vs2 + i,
+                                       w0, w1, _unused_w2, _unused_w3,
+                                       w4, w5, _unused_w6, _unused_w7);
+        (void)_unused_w2;
+        (void)_unused_w3;
+        (void)_unused_w6;
+        (void)_unused_w7;
+
+        const uint32_t x0 = w0 ^ w4;  // W'[0] in spec documentation.
+        const uint32_t x1 = w1 ^ w5;  // W'[1]
+
+        // Two rounds of compression.
+        uint32_t ss1;
+        uint32_t ss2;
+        uint32_t tt1;
+        uint32_t tt2;
+        uint32_t j;
+
+        j = 2 * round;
+        ss1 = rol32(rol32(A, 12) + E + rol32(ZVKSH_T(j), j & 31), 7);
+        ss2 = ss1 ^ rol32(A, 12);
+        tt1 = ZVKSH_FF(A, B, C, j) + D + ss2 + x0;
+        tt2 = ZVKSH_GG(E, F, G, j) + H + ss1 + w0;
+        D = C;
+        const uint32_t C1 = rol32(B, 9);
+        B = A;
+        const uint32_t A1 = tt1;
+        H = G;
+        const uint32_t G1 = rol32(F, 19);
+        F = E;
+        const uint32_t E1 = ZVKSH_P0(tt2);
+
+        j = 2 * round + 1;
+        ss1 = rol32(rol32(A1, 12) + E1 + rol32(ZVKSH_T(j), j % 32), 7);
+        ss2 = ss1 ^ rol32(A1, 12);
+        tt1 = ZVKSH_FF(A1, B, C1, j) + D + ss2 + x1;
+        tt2 = ZVKSH_GG(E1, F, G1, j) + H + ss1 + w1;
+        D = C1;
+        const uint32_t C2 = rol32(B, 9);
+        B = A1;
+        const uint32_t A2 = tt1;
+        H = G1;
+        const uint32_t G2 = rol32(F, 19);
+        F = E1;
+        const uint32_t E2 = ZVKSH_P0(tt2);
+
+        // Update the destination register.
+        SET_EGU32x8_WORDS_LE_BSWAP(vd + i, A2, A1, C2, C1, E2, E1, G2, G1);
     }
 }

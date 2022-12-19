@@ -4274,3 +4274,38 @@ static bool trans_vghmac_vv(DisasContext *s, arg_vghmac_vv *a)
 
     return opivv_trans(s, a, gen_helper_vghmac_vv_w);
 }
+
+/* Zvksh (Vector ShangMi Suite: SM3 Secure Hash) extension */
+
+static bool require_zvksh(DisasContext *s)
+{
+    if (!s->cfg_ptr->ext_zvksh)
+       return false;
+
+    return true;
+}
+
+/* vsm3me.vv */
+
+static bool trans_vsm3me_vv(DisasContext *s, arg_vsm3me_vv *a)
+{
+    if (!require_zvksh(s) || !vext_check_ms(s, a->rd, a->rs2))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opivv_trans(s, a, gen_helper_vsm3me_vv_w);
+}
+
+/* vsm3c.vi */
+static bool trans_vsm3c_vi(DisasContext *s, arg_vsm3c_vi *a)
+{
+    if (!require_zvksh(s) || !vext_check_ms(s, a->rd, a->rs2))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opivi_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vsm3c_vi_w, s, IMM_ZX);
+}

@@ -1204,3 +1204,6 @@ DEF_HELPER_6(vsha2ch_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vsha2ch_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
 
 DEF_HELPER_6(vghmac_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
+
+DEF_HELPER_6(vsm3me_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vsm3c_vi_w, void, ptr, ptr, tl, ptr, env, i32)
