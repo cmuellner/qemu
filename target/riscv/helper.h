@@ -1207,3 +1207,7 @@ DEF_HELPER_6(vghmac_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
 
 DEF_HELPER_6(vsm3me_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vsm3c_vi_w, void, ptr, ptr, tl, ptr, env, i32)
+
+DEF_HELPER_6(vsm4k_vi_w, void, ptr, ptr, tl, ptr, env, i32)
+DEF_HELPER_5(vsm4r_vv_w, void, ptr, ptr, ptr, env, i32)
+DEF_HELPER_5(vsm4r_vs_w, void, ptr, ptr, ptr, env, i32)

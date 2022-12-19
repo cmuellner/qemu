@@ -28,6 +28,7 @@
 #include "internals.h"
 #include <math.h>
 #include "crypto/aes.h"
+#include "crypto/sm4.h"
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
                             target_ulong s2)
@@ -6373,4 +6374,123 @@ void HELPER(vsm3c_vi_w)(void *vd, void *vs0, target_ulong round, void *vs2,
         // Update the destination register.
         SET_EGU32x8_WORDS_LE_BSWAP(vd + i, A2, A1, C2, C1, E2, E1, G2, G1);
     }
+}
+
+#define EXTRACT_EGU32x4_WORDS_LE(X, W0, W1, W2, W3)    \
+    uint32_t W0 = ((uint32_t*)X)[0];                \
+    uint32_t W1 = ((uint32_t*)X)[1];                         \
+    uint32_t W2 = ((uint32_t*)X)[2];                         \
+    uint32_t W3 = ((uint32_t*)X)[3];                                  
+
+#define SET_EGU32x4_LE(X, W0, W1, W2, W3)        \
+    ((uint32_t*)X)[0] = W0;                \
+    ((uint32_t*)X)[1] = W1;                         \
+    ((uint32_t*)X)[2] = W2;                         \
+    ((uint32_t*)X)[3] = W3;                                  
+
+#define ROL32 rol32
+
+/* TODO: share with arm/crypto_helper.c */
+union CRYPTO_STATE {
+    uint8_t    bytes[16];
+    uint32_t   words[4];
+    uint64_t   l[2];
+};
+
+#if HOST_BIG_ENDIAN
+#define CR_ST_BYTE(state, i)   ((state).bytes[(15 - (i)) ^ 8])
+#define CR_ST_WORD(state, i)   ((state).words[(3 - (i)) ^ 2])
+#else
+#define CR_ST_BYTE(state, i)   ((state).bytes[i])
+#define CR_ST_WORD(state, i)   ((state).words[i])
+#endif
+
+static void do_crypto_sm4ekey(uint64_t *rd, uint64_t *rn, uint64_t *rm)
+{
+    union CRYPTO_STATE d;
+    union CRYPTO_STATE n = { .l = { rn[0], rn[1] } };
+    union CRYPTO_STATE m = { .l = { rm[0], rm[1] } };
+    uint32_t t, i;
+
+    d = n;
+    for (i = 0; i < 4; i++) {
+        t = CR_ST_WORD(d, (i + 1) % 4) ^
+            CR_ST_WORD(d, (i + 2) % 4) ^
+            CR_ST_WORD(d, (i + 3) % 4) ^
+            CR_ST_WORD(m, i);
+
+        t = sm4_sbox[t & 0xff] |
+            sm4_sbox[(t >> 8) & 0xff] << 8 |
+            sm4_sbox[(t >> 16) & 0xff] << 16 |
+            sm4_sbox[(t >> 24) & 0xff] << 24;
+
+        CR_ST_WORD(d, i) ^= t ^ rol32(t, 13) ^ rol32(t, 23);
+    }
+
+    rd[0] = d.l[0];
+    rd[1] = d.l[1];
+}
+
+static void do_crypto_sm4e(uint64_t *rd, uint64_t *rn, uint64_t *rm)
+{
+    union CRYPTO_STATE d = { .l = { rn[0], rn[1] } };
+    union CRYPTO_STATE n = { .l = { rm[0], rm[1] } };
+    uint32_t t, i;
+
+    for (i = 0; i < 4; i++) {
+        t = CR_ST_WORD(d, (i + 1) % 4) ^
+            CR_ST_WORD(d, (i + 2) % 4) ^
+            CR_ST_WORD(d, (i + 3) % 4) ^
+            CR_ST_WORD(n, i);
+
+        t = sm4_sbox[t & 0xff] |
+            sm4_sbox[(t >> 8) & 0xff] << 8 |
+            sm4_sbox[(t >> 16) & 0xff] << 16 |
+            sm4_sbox[(t >> 24) & 0xff] << 24;
+
+        CR_ST_WORD(d, i) ^= t ^ rol32(t, 2) ^ rol32(t, 10) ^ rol32(t, 18) ^
+                            rol32(t, 24);
+    }
+
+    rd[0] = d.l[0];
+    rd[1] = d.l[1];
+}
+
+void HELPER(vsm4k_vi_w)(void *vd, void *vs0, target_ulong round, void *vs2,
+                        CPURISCVState *env, uint32_t desc)
+{
+    const uint32_t ck[32] = {
+	0x00070E15, 0x1C232A31, 0x383F464D, 0x545B6269,
+        0x70777E85, 0x8C939AA1, 0xA8AFB6BD, 0xC4CBD2D9,
+        0xE0E7EEF5, 0xFC030A11, 0x181F262D, 0x343B4249,
+        0x50575E65, 0x6C737A81, 0x888F969D, 0xA4ABB2B9,
+        0xC0C7CED5, 0xDCE3EAF1, 0xF8FF060D, 0x141B2229,
+	0x30373E45, 0x4C535A61, 0x686F767D, 0x848B9299,
+        0xA0A7AEB5, 0xBCC3CAD1, 0xD8DFE6ED, 0xF4FB0209,
+	0x10171E25, 0x2C333A41, 0x484F565D, 0x646B7279
+    };
+    
+    intptr_t i, oprsz = simd_oprsz(desc);
+
+    for (i = 0; i < oprsz; i += 16) {
+        do_crypto_sm4ekey(vd + i, vs2 + i, (uint64_t*)&ck[4 * round]);
+    }
+}
+
+void HELPER(vsm4r_vv_w)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_crypto_sm4e(vd + i, vd + i, vs2 + i);
+    }    
+}
+
+void HELPER(vsm4r_vs_w)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+
+    for (intptr_t i = 0; i < oprsz; i += 16) {
+        do_crypto_sm4e(vd + i, vd + i, vs2);
+    }    
 }

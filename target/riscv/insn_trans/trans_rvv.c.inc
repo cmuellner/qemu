@@ -1434,6 +1434,7 @@ GEN_OPIVX_GVEC_TRANS(vrsub_vx, rsubs)
 
 typedef enum {
     IMM_ZX,         /* Zero-extended */
+    IMM_ZIMM3,
     IMM_ZIMM6,
     IMM_SX,         /* Sign-extended */
     IMM_TRUNC_SEW,  /* Truncate to log(SEW) bits */
@@ -1445,6 +1446,8 @@ static int64_t extract_imm(DisasContext *s, uint32_t imm, imm_mode_t imm_mode)
     switch (imm_mode) {
     case IMM_ZX:
         return extract64(imm, 0, 5);
+    case IMM_ZIMM3:
+        return extract64(imm, 0, 3);
     case IMM_ZIMM6:
         return extract64(imm, 0, 6);
     case IMM_SX:
@@ -4308,4 +4311,50 @@ static bool trans_vsm3c_vi(DisasContext *s, arg_vsm3c_vi *a)
         return false;
 
     return opivi_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vsm3c_vi_w, s, IMM_ZX);
+}
+
+/* Zvksh (Vector ShangMi Suite: SM4 Block Cipher) extension */
+
+static bool require_zvksed(DisasContext *s)
+{
+    if (!s->cfg_ptr->ext_zvksed)
+       return false;
+
+    return true;
+}
+
+/* vsm4k.vi */
+static bool trans_vsm4k_vi(DisasContext *s, arg_vsm4k_vi *a)
+{
+    if (!require_zvksed(s))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opivi_trans(a->rd, a->rs1, a->rs2, a->vm, gen_helper_vsm4k_vi_w, s, IMM_ZIMM3);
+}
+
+/* vsm4r.vv */
+static bool trans_vsm4r_vv(DisasContext *s, arg_vsm4r_vv *a)
+{
+    if (!require_zvksh(s))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opiv_trans(s, a, gen_helper_vsm4r_vv_w);
+}
+
+/* vsm4r.vs */
+static bool trans_vsm4r_vs(DisasContext *s, arg_vsm4r_vs *a)
+{
+    if (!require_zvksh(s) || !require_noover(a->rd, 0, a->rs2, s->lmul))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opiv_trans(s, a, gen_helper_vsm4r_vs_w);
 }
