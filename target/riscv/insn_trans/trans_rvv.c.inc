@@ -4252,3 +4252,25 @@ static bool trans_##NAME(DisasContext *s, arg_##NAME *a)           \
 GEN_ZKNH_OPIVV_TRANS(vsha2ms_vv)
 GEN_ZKNH_OPIVV_TRANS(vsha2cl_vv)
 GEN_ZKNH_OPIVV_TRANS(vsha2ch_vv)
+
+/* Zvkg (vector GCM/GMAC instruction for cryptography) extension */
+
+static bool require_zvkg(DisasContext *s)
+{
+    if (!s->cfg_ptr->ext_zvkg)
+       return false;
+
+    return true;
+}
+
+/* vghmac.vv */
+static bool trans_vghmac_vv(DisasContext *s, arg_vghmac_vv *a)
+{
+    if (!require_zvkg(s))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opivv_trans(s, a, gen_helper_vghmac_vv_w);
+}
