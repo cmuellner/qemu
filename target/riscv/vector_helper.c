@@ -1604,6 +1604,340 @@ void HELPER(vaesz_vs)(void *vd, void* v0, void *vs2, CPURISCVState *env, uint32_
     }
 }
 
+#define EXTRACT_EGU32x4_WORDS_BE(X, W3, W2, W1, W0) \
+    uint32_t W0 = (X)[0];                \
+    uint32_t W1 = (X)[1];                         \
+    uint32_t W2 = (X)[2];                         \
+    uint32_t W3 = (X)[3];                                   \
+  (void)(0)
+
+#define EXTRACT_EGU64x4_WORDS_BE(X, W3, W2, W1, W0) \
+  uint64_t W0 = (X)[0]; \
+  uint64_t W1 = (X)[1]; \
+  uint64_t W2 = (X)[2]; \
+  uint64_t W3 = (X)[3]; \
+  (void)(0)
+
+#define SET_EGU32x4_BE(X, W3, W2, W1, W0) \
+  do { \
+    (X)[0] = (W0); \
+    (X)[1] = (W1); \
+    (X)[2] = (W2); \
+    (X)[3] = (W3); \
+  } while (0)
+
+#define SET_EGU64x4_BE(X, W3, W2, W1, W0) \
+  do { \
+    (X)[0] = (W0); \
+    (X)[1] = (W1); \
+    (X)[2] = (W2); \
+    (X)[3] = (W3); \
+  } while (0)
+
+static uint32_t sha256_sum0(uint32_t x)
+{
+    return ror32(x, 2) ^ ror32(x, 13) ^ ror32(x, 22);
+}
+
+static uint32_t sha256_sum1(uint32_t x)
+{
+    return ror32(x, 6) ^ ror32(x, 11) ^ ror32(x, 25);
+}
+
+static uint32_t sha256_sig0(uint32_t x)
+{
+    return ror32(x, 7) ^ ror32(x, 18) ^ (x >> 3);
+}
+
+static uint32_t sha256_sig1(uint32_t x)
+{
+    return ror32(x, 17) ^ ror32(x, 19) ^ (x >> 10);
+}
+
+// Given the schedule words W[t+0], W[t+1], W[t+9], W[t+14], computes
+// W[t+16].
+#define ZVK_SHA256_SCHEDULE(W14, W9, W1, W0) \
+    (sha256_sig1(W14) + (W9) + sha256_sig0(W1) + (W0))
+
+static uint64_t sha512_sum0(uint64_t x)
+{
+    return ror64(x, 28) ^ ror64(x, 34) ^ ror64(x, 39);
+}
+
+static uint64_t sha512_sum1(uint64_t x)
+{
+    return ror64(x, 14) ^ ror64(x, 18) ^ ror64(x, 41);
+}
+
+static uint64_t sha512_sig0(uint64_t x)
+{
+    return ror64(x, 1) ^ ror64(x, 8) ^ (x >> 7);
+}
+
+static uint64_t sha512_sig1(uint64_t x)
+{
+    return ror64(x, 19) ^ ror64(x, 61) ^ (x >> 6);
+}
+
+#define ZVK_SHA512_SCHEDULE(W14, W9, W1, W0) \
+    (sha512_sig1(W14) + (W9) + sha512_sig0(W1) + (W0))
+
+void HELPER(vsha2ms_vv_w)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // TODO: clean-up and use vstart, vl
+//    fprintf(stderr, "%s: %ld %ld\n", __PRETTY_FUNCTION__, (long)env->vstart, (long)env->vl);
+    
+    // CLEANUP 16
+    for (i = 0; i < oprsz; i += 16) {
+        uint32_t *vd = vdin + i;
+        uint32_t *vs1 = vs1in + i;
+        uint32_t *vs2 = vs2in + i;
+
+        // {w3, w2, w1, w0} <- vd
+        EXTRACT_EGU32x4_WORDS_BE(vd , w3, w2, w1, w0);
+        // {w11, w10, w9, w4} <- vs2
+        EXTRACT_EGU32x4_WORDS_BE(vs2, w11, w10, w9, w4);
+        // {w15, w14, w13, w12} <- vs1
+        EXTRACT_EGU32x4_WORDS_BE(vs1, w15, w14, _unused_w13, w12);
+
+        // TODO
+        (void)_unused_w13;
+        
+        const uint32_t w16 = ZVK_SHA256_SCHEDULE(w14,  w9, w1, w0);
+        const uint32_t w17 = ZVK_SHA256_SCHEDULE(w15, w10, w2, w1);
+        const uint32_t w18 = ZVK_SHA256_SCHEDULE(w16, w11, w3, w2);
+        const uint32_t w19 = ZVK_SHA256_SCHEDULE(w17, w12, w4, w3);
+
+        // Update the destination register.
+        SET_EGU32x4_BE(vd, w19, w18, w17, w16);;
+#if 0
+        printf("%s: @output state(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vd[0], vd[1], vd[2], vd[3]);
+#endif
+    }
+}
+
+void HELPER(vsha2ms_vv_d)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // TODO: clean-up and use vstart, vl
+//    fprintf(stderr, "%s: %ld %ld\n", __PRETTY_FUNCTION__, (long)env->vstart, (long)env->vl);
+    
+    // CLEANUP 32
+    for (i = 0; i < oprsz; i += 32) {
+        uint64_t *vd = vdin + i;
+        uint64_t *vs1 = vs1in + i;
+        uint64_t *vs2 = vs2in + i;
+
+        // {w3, w2, w1, w0} <- vd
+        EXTRACT_EGU64x4_WORDS_BE(vd, w3, w2, w1, w0);
+        // {w11, w10, w9, w4} <- vs2
+        EXTRACT_EGU64x4_WORDS_BE(vs2, w11, w10, w9, w4);
+        // {w15, w14, w13, w12} <- vs1
+        EXTRACT_EGU64x4_WORDS_BE(vs1, w15, w14, _unused_w13, w12);
+
+        (void)_unused_w13;
+        
+        const uint64_t w16 = ZVK_SHA512_SCHEDULE(w14,  w9, w1, w0);
+        const uint64_t w17 = ZVK_SHA512_SCHEDULE(w15, w10, w2, w1);
+        const uint64_t w18 = ZVK_SHA512_SCHEDULE(w16, w11, w3, w2);
+        const uint64_t w19 = ZVK_SHA512_SCHEDULE(w17, w12, w4, w3);
+
+        // Update the destination register.
+        SET_EGU64x4_BE(vd, w19, w18, w17, w16);;
+    }
+}
+
+#define ZVK_SHA_CH(X, Y, Z) (((X) & (Y)) ^ ((~(X)) & (Z)))
+
+// Maj(x,y,z)  = (xy) ⊕ (xz) ⊕(yz) = xy | xz | yz
+#define ZVK_SHA_MAJ(X, Y, Z) (((X) & (Y)) ^ ((X) & (Z)) ^ ((Y) & (Z)))
+
+#define ZVK_SHA256_COMPRESS(A, B, C, D, E, F, G, H, KW) \
+  { \
+    const uint32_t t1 = (H) + sha256_sum1(E) + \
+                        ZVK_SHA_CH((E), (F), (G)) + (KW); \
+    const uint32_t t2 = sha256_sum0(A) + ZVK_SHA_MAJ((A), (B), (C)); \
+    (H) = (G); \
+    (G) = (F); \
+    (F) = (E); \
+    (E) = (D) + t1; \
+    (D) = (C); \
+    (C) = (B); \
+    (B) = (A); \
+    (A) = t1 + t2; \
+  }
+
+#define ZVK_SHA512_COMPRESS(A, B, C, D, E, F, G, H, KW) \
+  { \
+    const uint64_t t1 = (H) + sha512_sum1(E) + \
+                        ZVK_SHA_CH((E), (F), (G)) + (KW); \
+    const uint64_t t2 = sha512_sum0(A) + ZVK_SHA_MAJ((A), (B), (C)); \
+    (H) = (G); \
+    (G) = (F); \
+    (F) = (E); \
+    (E) = (D) + t1; \
+    (D) = (C); \
+    (C) = (B); \
+    (B) = (A); \
+    (A) = t1 + t2; \
+  }
+
+void HELPER(vsha2cl_vv_w)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // CLEANUP 16
+    for (i = 0; i < oprsz; i += 16) {
+        uint32_t *vd =  vdin + i;
+        uint32_t *vs1 = vs1in + i;
+        uint32_t *vs2 = vs2in + i;
+
+#if 0
+        printf("%s: @vd(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vd[0], vd[1], vd[2], vd[3]);
+        printf("%s: @vs2(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vs2[0], vs2[1], vs2[2], vs2[3]);
+        printf("%s: @vs1(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vs1[0], vs1[1], vs1[2], vs1[3]);
+#endif        
+
+        // {c, d, g, h} <- vd
+        EXTRACT_EGU32x4_WORDS_BE(vd, c, d, g, h);
+        // {a, b, e, f}  <- vs2
+        EXTRACT_EGU32x4_WORDS_BE(vs2, a, b, e, f);
+        // {kw3, kw2, kw1, kw0} <- vs1.  "kw" stands for K+W
+        EXTRACT_EGU32x4_WORDS_BE(vs1, _unused_kw3, _unused_kw2, kw1, kw0);
+
+        // TODO
+        (void)_unused_kw3;
+        // TODO
+        (void)_unused_kw2;
+
+        ZVK_SHA256_COMPRESS(a, b, c, d, e, f, g, h, kw0);
+        ZVK_SHA256_COMPRESS(a, b, c, d, e, f, g, h, kw1);
+
+        // Update the destination register, vd <- {a, b, e, f}.
+        SET_EGU32x4_BE(vd, a, b, e, f);
+
+#if 0        
+        printf("%s: @output state(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vd[0], vd[1], vd[2], vd[3]);
+#endif        
+    }
+}
+
+void HELPER(vsha2ch_vv_w)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // CLEANUP 16
+    for (i = 0; i < oprsz; i += 16) {
+        uint32_t *vd = vdin + i;
+        uint32_t *vs1 = vs1in + i;
+        uint32_t *vs2 = vs2in + i;
+
+        // {c, d, g, h} <- vd
+        EXTRACT_EGU32x4_WORDS_BE(vd, c, d, g, h);
+        // {a, b, e, f}  <- vs2
+        EXTRACT_EGU32x4_WORDS_BE(vs2, a, b, e, f);
+        // {kw3, kw2, kw1, kw0} <- vs1.  "kw" stands for K+W
+        EXTRACT_EGU32x4_WORDS_BE(vs1, kw3, kw2, _unused_kw1, _unused_kw0);
+
+        // TODO
+        (void)_unused_kw1;
+        // TODO
+        (void)_unused_kw0;
+
+        ZVK_SHA256_COMPRESS(a, b, c, d, e, f, g, h, kw2);
+        ZVK_SHA256_COMPRESS(a, b, c, d, e, f, g, h, kw3);
+
+        // Update the destination register, vd <- {a, b, e, f}.
+        SET_EGU32x4_BE(vd, a, b, e, f);
+
+#if 0        
+        printf("%s: @output state(%08x_%08x_%08x_%08x)\n",
+               __PRETTY_FUNCTION__, vd[0], vd[1], vd[2], vd[3]);
+#endif        
+    }    
+}
+
+void HELPER(vsha2cl_vv_d)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // TODO: clean-up and use vstart, vl
+//    fprintf(stderr, "%s: %ld %ld\n", __PRETTY_FUNCTION__, (long)env->vstart, (long)env->vl);
+    
+    // CLEANUP 32
+    for (i = 0; i < oprsz; i += 32) {
+        uint64_t *vd = vdin + i;
+        uint64_t *vs1 = vs1in + i;
+        uint64_t *vs2 = vs2in + i;
+
+        // {c, d, g, h} <- vd                                                   
+        EXTRACT_EGU64x4_WORDS_BE(vd, c, d, g, h);
+        // {a, b, e, f}  <- vs2                                                 
+        EXTRACT_EGU64x4_WORDS_BE(vs2, a, b, e, f);
+	// {kw3, kw2, kw1, kw0} <- vs1.  "kw" stands for K+W                    
+        EXTRACT_EGU64x4_WORDS_BE(vs1, _unused_kw3, _unused_kw2, kw1, kw0);
+
+        (void)_unused_kw3;
+        (void)_unused_kw2;
+        
+        ZVK_SHA512_COMPRESS(a, b, c, d, e, f, g, h, kw0);
+        ZVK_SHA512_COMPRESS(a, b, c, d, e, f, g, h, kw1);
+
+        // Update the destination register, vd <- {a, b, e, f}.                 
+        SET_EGU64x4_BE(vd, a, b, e, f);        
+
+#if 0        
+        printf("%s: @output state(%016lx_%016lx_%016lx_%016lx)\n",
+               __PRETTY_FUNCTION__, vd[0], vd[1], vd[2], vd[3]);
+#endif        
+    }
+}
+
+void HELPER(vsha2ch_vv_d)(void *vdin, void* v0, void* vs1in, void *vs2in, CPURISCVState *env, uint32_t desc)
+{
+    intptr_t oprsz = simd_oprsz(desc);
+    intptr_t i;
+
+    // TODO: clean-up and use vstart, vl
+//    fprintf(stderr, "%s: %ld %ld\n", __PRETTY_FUNCTION__, (long)env->vstart, (long)env->vl);
+    
+    // CLEANUP 32
+    for (i = 0; i < oprsz; i += 32) {
+        uint64_t *vd = vdin + i;
+        uint64_t *vs1 = vs1in + i;
+        uint64_t *vs2 = vs2in + i;
+
+        // {c, d, g, h} <- vd                                                   
+        EXTRACT_EGU64x4_WORDS_BE(vd, c, d, g, h);
+        // {a, b, e, f}  <- vs2                                                 
+        EXTRACT_EGU64x4_WORDS_BE(vs2, a, b, e, f);
+	// {kw3, kw2, kw1, kw0} <- vs1.  "kw" stands for K+W                    
+        EXTRACT_EGU64x4_WORDS_BE(vs1, kw3, kw2, _unused_kw1, _unused_kw0);
+
+        (void)_unused_kw1;
+        (void)_unused_kw0;
+        
+        ZVK_SHA512_COMPRESS(a, b, c, d, e, f, g, h, kw2);
+        ZVK_SHA512_COMPRESS(a, b, c, d, e, f, g, h, kw3);
+
+        // Update the destination register, vd <- {a, b, e, f}.                 
+        SET_EGU64x4_BE(vd, a, b, e, f);        
+    }
+}
+
 RVVCALL(OPIVX2, vand_vx_b, OP_SSS_B, H1, H1, DO_AND)
 RVVCALL(OPIVX2, vand_vx_h, OP_SSS_H, H2, H2, DO_AND)
 RVVCALL(OPIVX2, vand_vx_w, OP_SSS_W, H4, H4, DO_AND)

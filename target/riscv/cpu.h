@@ -463,6 +463,8 @@ struct RISCVCPUConfig {
     bool ext_zve32f;
     bool ext_zve64f;
     bool ext_zvkb;
+    bool ext_zvknha;
+    bool ext_zvknhb;
     bool ext_zvkns;
     bool ext_zmmul;
     bool ext_smaia;

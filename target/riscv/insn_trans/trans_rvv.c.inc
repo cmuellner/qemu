@@ -4215,3 +4215,40 @@ GEN_ZKNS_OPIVV_TRANS(vaesdm_vs, zvkns_check_vs)
 GEN_ZKNS_OPIVV_TRANS(vaesdf_vv, zvkns_check_vv)
 GEN_ZKNS_OPIVV_TRANS(vaesdf_vs, zvkns_check_vs)
 GEN_ZKNS_OPIVV_TRANS(vaesz_vs, zvkns_check_vs)
+
+static bool require_zvknha(DisasContext *s)
+{
+    if (s->cfg_ptr->ext_zvknha)
+        return true;
+
+    return false;
+}
+
+static bool require_zvknhb(DisasContext *s)
+{
+    if (s->cfg_ptr->ext_zvknhb)
+        return true;
+
+    return false;
+}
+
+#define GEN_ZKNH_OPIVV_TRANS(NAME) \
+static bool trans_##NAME(DisasContext *s, arg_##NAME *a)           \
+{                                                                  \
+    if (!require_noover(a->rd, 0, a->rs2, s->lmul))                \
+        return false;                                              \
+                                                                   \
+    if (s->sew == MO_32 &&                                         \
+        (require_zvknha(s) || require_zvknhb(s)))                  \
+        return opivv_trans(s, a, gen_helper_##NAME##_w);           \
+                                                                   \
+    if (s->sew == MO_64 &&                                         \
+        require_zvknhb(s))                                         \
+         return opivv_trans(s, a, gen_helper_##NAME##_d);          \
+                                                                   \
+    return false;                                                  \
+}
+
+GEN_ZKNH_OPIVV_TRANS(vsha2ms_vv)
+GEN_ZKNH_OPIVV_TRANS(vsha2cl_vv)
+GEN_ZKNH_OPIVV_TRANS(vsha2ch_vv)
