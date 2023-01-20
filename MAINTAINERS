@@ -295,6 +295,13 @@ F: include/hw/riscv/
 F: linux-user/host/riscv32/
 F: linux-user/host/riscv64/
 
+RISC-V Zicond extension
+M: Philipp Tomsich <philipp.tomsich@vrull.eu>
+M: Christoph Muellner <christoph.muellner@vrull.eu>
+L: qemu-riscv@nongnu.org
+S: Supported
+F: target/riscv/insn_trans/trans_zicond.c.inc
+
 RISC-V XVentanaCondOps extension
 M: Philipp Tomsich <philipp.tomsich@vrull.eu>
 L: qemu-riscv@nongnu.org
