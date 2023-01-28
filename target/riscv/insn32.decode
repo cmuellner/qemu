@@ -758,6 +758,10 @@ vsha2cl_vv      101111 1 ..... ..... 010 ..... 1110111 @r_vm_1
 
 # Vector GCM/GMAC (Zvkg) Extension
 vghmac_vv      101100 1 ..... ..... 010 ..... 1110111 @r_vm_1
+# Made up instruction with random encoding (!)
+vgmult_vv      101001 1 ..... 01000 010 ..... 1110111 @r2_vm_1
+# Made up instruction with random encoding (!)
+vghash_vv      100011 1 ..... ..... 010 ..... 1110111 @r_vm_1
 
 # Vector SM3 Secure Hash (Zvksh) Extension
 vsm3me_vv       100000 1 ..... ..... 010 ..... 1110111 @r_vm_1

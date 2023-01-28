@@ -6213,7 +6213,7 @@ static void int128_store_EGU32x4(Int128 i, void* v)
     egu32x4[H4(3)] = hi >> 32;
 }
 
-/* vghmac.vv */
+/* vghmac.vv - Y[i+1] = (Y[i] ⋅ H) ^ X[i+1] */
 
 void HELPER(vghmac_vv_w)(void *vd, void *v0, void* vs1, void *vs2,
                          CPURISCVState *env, uint32_t desc)
@@ -6237,6 +6237,62 @@ void HELPER(vghmac_vv_w)(void *vd, void *v0, void* vs1, void *vs2,
         }
         z = int128_brevEGU32x4(z);
         z = int128_xor(z, x);
+        int128_store_EGU32x4(z, (vd + i));
+    }
+}
+
+/* vgmult.vv - Y[i+1] = (Y[i] ⋅ H) */
+
+void HELPER(vgmult_vv_w)(void *vd, void *v0, void *vs2,
+                         CPURISCVState *env, uint32_t desc)
+{
+    for (int i = env->vstart; i < env->vl / 4; i += 16) {
+        Int128 y = int128_make_brevEGU32x4(vd + i);
+        Int128 h = int128_make_brevEGU32x4(vs2 + i);
+        Int128 z = int128_zero();
+
+        for (int bit = 0; bit < 128; bit++) {
+            if (int128_isset(y, bit)) {
+                z = int128_xor(z, h);
+            }
+
+            bool reduce = int128_isset(h, 127);
+            h = int128_lshift(h, 1);
+            if (reduce) {
+                h = int128_xor(h, int128_make64(0x87));
+            }
+        }
+        z = int128_brevEGU32x4(z);
+        int128_store_EGU32x4(z, (vd + i));
+    }
+}
+
+/* vghash.vv - Y[i+1] = ((Y[i] ^ X[i]) ⋅ H) */
+
+void HELPER(vghash_vv_w)(void *vd, void *v0, void* vs1, void *vs2,
+                         CPURISCVState *env, uint32_t desc)
+{
+    for (int i = env->vstart; i < env->vl / 4; i += 16) {
+        Int128 y = int128_make_EGU32x4(vd + i);
+        Int128 h = int128_make_brevEGU32x4(vs1 + i);
+        Int128 x = int128_make_EGU32x4(vs2 + i);
+        Int128 z = int128_zero();
+
+	y = int128_xor(y, x);
+	y = int128_brevEGU32x4(y);
+
+        for (int bit = 0; bit < 128; bit++) {
+            if (int128_isset(y, bit)) {
+                z = int128_xor(z, h);
+            }
+
+            bool reduce = int128_isset(h, 127);
+            h = int128_lshift(h, 1);
+            if (reduce) {
+                h = int128_xor(h, int128_make64(0x87));
+            }
+        }
+        z = int128_brevEGU32x4(z);
         int128_store_EGU32x4(z, (vd + i));
     }
 }

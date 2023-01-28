@@ -4278,6 +4278,30 @@ static bool trans_vghmac_vv(DisasContext *s, arg_vghmac_vv *a)
     return opivv_trans(s, a, gen_helper_vghmac_vv_w);
 }
 
+/* vgmult.vv */
+static bool trans_vgmult_vv(DisasContext *s, arg_vgmult_vv *a)
+{
+    if (!require_zvkg(s))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opiv_trans(s, a, gen_helper_vgmult_vv_w);
+}
+
+/* vghash.vv */
+static bool trans_vghash_vv(DisasContext *s, arg_vghash_vv *a)
+{
+    if (!require_zvkg(s))
+        return false;
+
+    if (s->sew != MO_32)
+        return false;
+
+    return opivv_trans(s, a, gen_helper_vghash_vv_w);
+}
+
 /* Zvksh (Vector ShangMi Suite: SM3 Secure Hash) extension */
 
 static bool require_zvksh(DisasContext *s)
