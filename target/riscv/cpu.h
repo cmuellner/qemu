@@ -197,6 +197,7 @@ struct CPUArchState {
 
 #ifdef CONFIG_USER_ONLY
     uint32_t elf_flags;
+    bool dtso_ena; /* Dynamic TSO enable */
 #endif
 
 #ifndef CONFIG_USER_ONLY

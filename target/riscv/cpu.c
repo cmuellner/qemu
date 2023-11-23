@@ -883,6 +883,10 @@ static void riscv_cpu_reset_hold(Object *obj)
     if (mcc->parent_phases.hold) {
         mcc->parent_phases.hold(obj);
     }
+#ifdef CONFIG_USER_ONLY
+    env->dtso_ena = false;
+#endif
+
 #ifndef CONFIG_USER_ONLY
     env->misa_mxl = env->misa_mxl_max;
     env->priv = PRV_M;
