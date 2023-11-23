@@ -6309,6 +6309,12 @@ abi_long do_arch_prctl(CPUX86State *env, int code, abi_ulong addr)
 # define PR_SME_VL_LEN_MASK  0xffff
 # define PR_SME_VL_INHERIT   (1 << 17)
 #endif
+#ifndef PR_SET_MEMORY_CONSISTENCY_MODEL
+# define PR_SET_MEMORY_CONSISTENCY_MODEL        71
+# define PR_GET_MEMORY_CONSISTENCY_MODEL        72
+# define PR_MEMORY_CONSISTENCY_MODEL_RISCV_WMO  1
+# define PR_MEMORY_CONSISTENCY_MODEL_RISCV_TSO  2
+#endif
 
 #include "target_prctl.h"
 
@@ -6354,6 +6360,12 @@ static abi_long do_prctl_inval1(CPUArchState *env, abi_long arg2)
 #endif
 #ifndef do_prctl_sme_set_vl
 #define do_prctl_sme_set_vl do_prctl_inval1
+#endif
+#ifndef do_prctl_set_memory_consistency_model
+#define do_prctl_set_memory_consistency_model_inval1
+#endif
+#ifndef do_prctl_get_memory_consistency_model
+#define do_prctl_get_memory_consistency_model_inval0
 #endif
 
 static abi_long do_prctl(CPUArchState *env, abi_long option, abi_long arg2,
@@ -6480,6 +6492,11 @@ static abi_long do_prctl(CPUArchState *env, abi_long option, abi_long arg2,
     case PR_SET_TSC:
         /* Disable to prevent the target disabling stuff we need. */
         return -TARGET_EINVAL;
+
+    case PR_SET_MEMORY_CONSISTENCY_MODEL:
+        return do_prctl_set_memory_consistency_model(env, arg2);
+    case PR_GET_MEMORY_CONSISTENCY_MODEL:
+	return do_prctl_get_memory_consistency_model(env);
 
     default:
         qemu_log_mask(LOG_UNIMP, "Unsupported prctl: " TARGET_ABI_FMT_ld "\n",
