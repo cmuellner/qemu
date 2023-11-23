@@ -8800,6 +8800,7 @@ static int do_getdents64(abi_long dirfd, abi_long arg2, abi_long count)
 #define     RISCV_HWPROBE_EXT_ZBB      (1 << 4)
 #define     RISCV_HWPROBE_EXT_ZBS      (1 << 5)
 #define     RISCV_HWPROBE_EXT_ZICBOZ   (1 << 6)
+#define     RISCV_HWPROBE_EXT_SSDTSO   (1 << 7)
 
 #define RISCV_HWPROBE_KEY_CPUPERF_0     5
 #define     RISCV_HWPROBE_MISALIGNED_UNKNOWN     (0 << 0)
@@ -8860,6 +8861,8 @@ static void risc_hwprobe_fill_pairs(CPURISCVState *env,
                      RISCV_HWPROBE_EXT_ZBS : 0;
             value |= cfg->ext_zicboz ?
                      RISCV_HWPROBE_EXT_ZICBOZ : 0;
+            value |= cfg->ext_ssdtso ?
+                     RISCV_HWPROBE_EXT_SSDTSO : 0;
             __put_user(value, &pair->value);
             break;
         case RISCV_HWPROBE_KEY_CPUPERF_0:
